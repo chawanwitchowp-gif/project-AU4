@@ -1,0 +1,364 @@
+<!DOCTYPE html>
+<html lang="th">
+<head>
+<meta charset="UTF-8">
+<title>โมเดล 3 มิติ - หัวขันโบ้วแบบสปริงลอยตัว + คลัตช์กันแรงบิดเกิน</title>
+<style>
+  html, body { margin:0; padding:0; overflow:hidden; background:#050505; font-family: -apple-system, "Helvetica Neue", Arial, sans-serif; }
+  #ui {
+    position:absolute; top:16px; left:16px; z-index:10;
+    background:rgba(20,20,20,0.85); backdrop-filter: blur(6px);
+    border:1px solid #333; border-radius:10px; padding:14px 16px;
+    color:#eee; font-size:13px; max-width:300px;
+  }
+  #ui h1 { font-size:15px; margin:0 0 8px; font-weight:600; }
+  #ui button {
+    background:#2a2a2a; color:#eee; border:1px solid #444; border-radius:6px;
+    padding:7px 12px; font-size:13px; cursor:pointer; margin-right:6px;
+  }
+  #ui button:hover { background:#383838; }
+  #ui .row { display:flex; align-items:center; gap:8px; margin-top:10px; }
+  #ui input[type=range] { flex:1; }
+  #state { margin-top:10px; color:#9fd; font-size:12.5px; min-height:34px; line-height:1.4; }
+  .legend { margin-top:12px; display:flex; flex-direction:column; gap:5px; }
+  .legend span.dot { display:inline-block; width:10px; height:10px; border-radius:2px; margin-right:6px; vertical-align:-1px; }
+  #hint { position:absolute; bottom:14px; left:16px; color:#888; font-size:11.5px; z-index:10; }
+</style>
+</head>
+<body>
+<div id="ui">
+  <h1>หัวขันโบ้ว: สปริงลอยตัว + คลัตช์กันแรงบิดเกิน</h1>
+  <div>
+    <button id="playBtn">เริ่มจำลอง</button>
+    <button id="resetBtn">รีเซ็ต</button>
+  </div>
+  <div class="row">
+    <label style="white-space:nowrap;">ความเร็ว</label>
+    <input type="range" id="speed" min="0.3" max="2.5" step="0.1" value="1">
+  </div>
+  <div id="state">พร้อมทำงาน</div>
+  <div class="legend">
+    <div><span class="dot" style="background:#4a90d9"></span>กระบอกลม (แรงดันคงที่)</div>
+    <div><span class="dot" style="background:#d9622f"></span>มอเตอร์หมุนต่อเนื่อง</div>
+    <div><span class="dot" style="background:#9a6fd8"></span>คลัตช์กันแรงบิดเกิน (2 แผ่น)</div>
+    <div><span class="dot" style="background:#d8d2c2"></span>ปลอกต่อ/บ็อกซ์หกเหลี่ยม (พิมพ์ 3 มิติ)</div>
+    <div><span class="dot" style="background:#cf9a3f"></span>โบ้ว</div>
+  </div>
+</div>
+<div id="hint">ลากเมาส์ = หมุนกล้อง | สกรอลล์ = ซูมเข้า-ออก</div>
+<canvas id="c"></canvas>
+
+<script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
+<script>
+var scene = new THREE.Scene();
+scene.background = new THREE.Color(0x050505);
+
+var camera = new THREE.PerspectiveCamera(38, window.innerWidth/window.innerHeight, 0.1, 200);
+
+var renderer = new THREE.WebGLRenderer({canvas: document.getElementById('c'), antialias:true});
+renderer.setPixelRatio(Math.min(window.devicePixelRatio,2));
+renderer.setSize(window.innerWidth, window.innerHeight);
+renderer.outputEncoding = THREE.sRGBEncoding;
+renderer.toneMapping = THREE.ACESFilmicToneMapping;
+renderer.toneMappingExposure = 1.05;
+
+// ---- manual orbit camera ----
+var target = new THREE.Vector3(0, 2.2, 0);
+var radius = 8.5, theta = 0.7, phi = 1.15;
+var isDragging = false, lastX = 0, lastY = 0;
+function updateCamera(){
+  var x = target.x + radius * Math.sin(phi) * Math.sin(theta);
+  var y = target.y + radius * Math.cos(phi);
+  var z = target.z + radius * Math.sin(phi) * Math.cos(theta);
+  camera.position.set(x, y, z);
+  camera.lookAt(target);
+}
+updateCamera();
+var dom = renderer.domElement;
+dom.style.touchAction = 'none';
+dom.addEventListener('pointerdown', function(e){ isDragging = true; lastX = e.clientX; lastY = e.clientY; dom.setPointerCapture(e.pointerId); });
+dom.addEventListener('pointerup', function(){ isDragging = false; });
+dom.addEventListener('pointerleave', function(){ isDragging = false; });
+dom.addEventListener('pointermove', function(e){
+  if(!isDragging) return;
+  var dx = e.clientX - lastX, dy = e.clientY - lastY;
+  lastX = e.clientX; lastY = e.clientY;
+  theta -= dx * 0.006;
+  phi -= dy * 0.006;
+  phi = Math.max(0.2, Math.min(Math.PI - 0.2, phi));
+  updateCamera();
+});
+dom.addEventListener('wheel', function(e){
+  e.preventDefault();
+  radius += e.deltaY * 0.007;
+  radius = Math.max(3, Math.min(18, radius));
+  updateCamera();
+}, {passive:false});
+
+// ---- lighting ----
+scene.add(new THREE.HemisphereLight(0xffffff, 0x2a2a26, 0.6));
+var key = new THREE.DirectionalLight(0xffffff, 1.15);
+key.position.set(5, 9, 5);
+scene.add(key);
+var fill = new THREE.DirectionalLight(0xbcd4ff, 0.4);
+fill.position.set(-6, 4, -3);
+scene.add(fill);
+var rim = new THREE.DirectionalLight(0xfff2d0, 0.5);
+rim.position.set(-2, 3, -6);
+scene.add(rim);
+
+function mat(hex, opts){ opts = opts||{}; return new THREE.MeshStandardMaterial(Object.assign({color:hex, roughness:0.45, metalness:0.35}, opts)); }
+
+var pneuMat = mat(0x4a90d9, {metalness:0.55, roughness:0.28});
+var frameMat = mat(0xcdd0d2, {roughness:0.3, metalness:0.5});
+var motorMat = mat(0xd9622f, {roughness:0.4, metalness:0.45});
+var clutchMat = mat(0x8f63c9, {roughness:0.35, metalness:0.55});
+var printedMat = mat(0xdcd6c6, {roughness:0.75, metalness:0.05}); // พลาสติกพิมพ์ 3 มิติ (ด้าน ไม่มันวาว)
+var darkMetal = mat(0x2c2c2a, {roughness:0.4, metalness:0.6});
+var springMat = mat(0xaeb0ac, {roughness:0.35, metalness:0.7});
+var shaftMat = mat(0x9a9d9f, {roughness:0.3, metalness:0.8});
+var goldMat = mat(0xcf9a3f, {roughness:0.32, metalness:0.9});
+var plateMat = mat(0x54606b, {roughness:0.5, metalness:0.4});
+
+// ================= จุดอ้างอิง Y (0 = ผิวบนของชิ้นงาน) =================
+var studR = 0.28, studH = 1.3;
+var nutTopY = 1.42, nutSeatedY = 0.30;
+var GROUP_Y_IDLE = 2.30, GROUP_Y_ENGAGE = 1.47, GROUP_Y_SEATED = 0.35;
+var ROD_HOME = 4.95, ROD_AT_ENGAGE = 4.12, ROD_AT_SPIN_END = 2.82, ROD_AT_SLIP_END = 2.50;
+var barrelBottomY = 5.1;
+
+// ================= ชิ้นงาน + แท่งเกลียว + โบ้ว =================
+var plate = new THREE.Mesh(new THREE.BoxGeometry(2.6,0.3,1.8), plateMat);
+plate.position.y = -0.15;
+scene.add(plate);
+
+var stud = new THREE.Mesh(new THREE.CylinderGeometry(studR, studR, studH, 24), shaftMat);
+stud.position.y = studH/2;
+scene.add(stud);
+
+var threadCount = 14;
+for(var i=0;i<threadCount;i++){
+  var yPos = 0.1 + (i/(threadCount-1)) * (studH - 0.2);
+  var ring = new THREE.Mesh(new THREE.TorusGeometry(studR+0.025, 0.03, 8, 20), shaftMat);
+  ring.rotation.x = Math.PI/2;
+  ring.rotation.z = i*0.35;
+  ring.position.y = yPos;
+  scene.add(ring);
+}
+
+var nutGroup = new THREE.Group();
+var hex = new THREE.Mesh(new THREE.CylinderGeometry(0.42,0.42,0.42,6), goldMat);
+nutGroup.add(hex);
+var collar = new THREE.Mesh(new THREE.CylinderGeometry(0.33,0.3,0.1,20), goldMat);
+collar.position.y = -0.26;
+nutGroup.add(collar);
+scene.add(nutGroup);
+
+// ================= ชุดหัวขัน (มอเตอร์ + คลัตช์ + ปลอกต่อ + บ็อกซ์หกเหลี่ยม) — เคลื่อนที่พร้อมกันเป็นกลุ่มเดียว =================
+var toolGroup = new THREE.Group();
+scene.add(toolGroup);
+
+// บ็อกซ์หกเหลี่ยม พิมพ์ 3 มิติ (local y=0 = จุดอ้างอิงกลาง)
+var socket = new THREE.Mesh(new THREE.CylinderGeometry(0.5,0.5,0.55,6), printedMat);
+toolGroup.add(socket);
+for(var s=0;s<4;s++){
+  var socketRing = new THREE.Mesh(new THREE.TorusGeometry(0.51,0.012,6,6), new THREE.MeshStandardMaterial({color:0xc8c2b0, roughness:0.8, metalness:0.03}));
+  socketRing.rotation.x = Math.PI/2;
+  socketRing.position.y = -0.2 + s*0.13;
+  toolGroup.add(socketRing);
+}
+
+// คลัตช์กันแรงบิดเกิน — แผ่นล่าง (ฝั่งหัวขัน/toolAngle) และแผ่นบน (ฝั่งมอเตอร์/motorAngle)
+var lowerClutchGroup = new THREE.Group();
+lowerClutchGroup.position.y = 0.35;
+var lowerClutch = new THREE.Mesh(new THREE.CylinderGeometry(0.4,0.4,0.09,20), clutchMat);
+lowerClutchGroup.add(lowerClutch);
+var lcNotch = new THREE.Mesh(new THREE.BoxGeometry(0.06,0.1,0.15), darkMetal);
+lcNotch.position.set(0.3,0,0);
+lowerClutchGroup.add(lcNotch);
+toolGroup.add(lowerClutchGroup);
+
+var springPreload = new THREE.Mesh(new THREE.CylinderGeometry(0.15,0.15,0.16,12), springMat);
+springPreload.position.y = 0.46;
+toolGroup.add(springPreload);
+
+var upperClutchGroup = new THREE.Group();
+upperClutchGroup.position.y = 0.58;
+var upperClutch = new THREE.Mesh(new THREE.CylinderGeometry(0.4,0.4,0.09,20), clutchMat);
+upperClutchGroup.add(upperClutch);
+var ucNotch = new THREE.Mesh(new THREE.BoxGeometry(0.06,0.1,0.15), darkMetal);
+ucNotch.position.set(0.3,0,0);
+upperClutchGroup.add(ucNotch);
+toolGroup.add(upperClutchGroup);
+
+// ปลอกต่อ พิมพ์ 3 มิติ (motor shaft -> คลัตช์)
+var couplerGroup = new THREE.Group();
+couplerGroup.position.y = 0.88;
+var coupler = new THREE.Mesh(new THREE.CylinderGeometry(0.24,0.3,0.32,16), printedMat);
+couplerGroup.add(coupler);
+for(var cg=0; cg<3; cg++){
+  var cRing = new THREE.Mesh(new THREE.TorusGeometry(0.27,0.01,6,16), new THREE.MeshStandardMaterial({color:0xc8c2b0, roughness:0.8, metalness:0.03}));
+  cRing.rotation.x = Math.PI/2;
+  cRing.position.y = -0.1 + cg*0.1;
+  couplerGroup.add(cRing);
+}
+toolGroup.add(couplerGroup);
+
+// เพลามอเตอร์
+var shaftGroup = new THREE.Group();
+shaftGroup.position.y = 1.18;
+var motorShaftMesh = new THREE.Mesh(new THREE.CylinderGeometry(0.09,0.09,0.34,16), darkMetal);
+shaftGroup.add(motorShaftMesh);
+toolGroup.add(shaftGroup);
+
+// ตัวมอเตอร์ (หมุนต่อเนื่อง) — ไม่หมุนตามมุม เป็นเรือนนิ่ง
+var motorHousing = new THREE.Mesh(new THREE.CylinderGeometry(0.32,0.32,0.85,20), motorMat);
+motorHousing.position.y = 1.75;
+toolGroup.add(motorHousing);
+var motorCap = new THREE.Mesh(new THREE.CylinderGeometry(0.14,0.14,0.12,16), darkMetal);
+motorCap.position.y = 2.23;
+toolGroup.add(motorCap);
+
+// ================= สปริงลอยตัว (dynamic ระหว่างปลายก้านกับหัวมอเตอร์) =================
+var springRingCount = 8;
+var springRings = [];
+for(var sr=0; sr<springRingCount; sr++){
+  var spRing = new THREE.Mesh(new THREE.TorusGeometry(0.16,0.02,8,16), springMat);
+  spRing.rotation.x = Math.PI/2;
+  scene.add(spRing);
+  springRings.push(spRing);
+}
+var springCapTop = new THREE.Mesh(new THREE.CylinderGeometry(0.19,0.19,0.08,16), frameMat);
+scene.add(springCapTop);
+var springCapBottom = new THREE.Mesh(new THREE.CylinderGeometry(0.19,0.19,0.08,16), frameMat);
+scene.add(springCapBottom);
+
+// ================= กระบอกลม (ตัวเรือนอยู่กับที่) + ก้าน (เลื่อนได้) =================
+var mountBracket = new THREE.Mesh(new THREE.BoxGeometry(0.7,0.16,0.5), frameMat);
+mountBracket.position.y = barrelBottomY + 0.55;
+scene.add(mountBracket);
+var barrel = new THREE.Mesh(new THREE.CylinderGeometry(0.22,0.22,0.9,20), pneuMat);
+barrel.position.y = barrelBottomY + 0.05;
+scene.add(barrel);
+
+var rodMaxLen = 2.3;
+var rodGroup = new THREE.Group();
+rodGroup.position.set(0, barrelBottomY, 0);
+scene.add(rodGroup);
+var rodMesh = new THREE.Mesh(new THREE.CylinderGeometry(0.07,0.07,rodMaxLen,16), frameMat);
+rodMesh.position.y = -rodMaxLen/2;
+rodGroup.add(rodMesh);
+rodGroup.scale.y = 0.02;
+
+// ================= STATE / ANIMATION =================
+var playing = false, t = 0, speed = 1;
+var motorAngle = 0, toolAngle = 0;
+var playBtn = document.getElementById('playBtn');
+var stateEl = document.getElementById('state');
+document.getElementById('speed').addEventListener('input', function(e){ speed = parseFloat(e.target.value); });
+playBtn.addEventListener('click', function(){
+  playing = !playing;
+  playBtn.textContent = playing ? 'หยุดชั่วคราว' : 'เริ่มจำลอง';
+});
+document.getElementById('resetBtn').addEventListener('click', function(){
+  playing = false; t = 0; motorAngle = 0; toolAngle = 0;
+  playBtn.textContent = 'เริ่มจำลอง';
+  stateEl.textContent = 'พร้อมทำงาน';
+});
+
+function clamp01(v){ return Math.max(0, Math.min(1, v)); }
+function keyframeLerp(phase, table){
+  for(var i=0;i<table.length-1;i++){
+    if(phase >= table[i][0] && phase <= table[i+1][0]){
+      var lo = table[i], hi = table[i+1];
+      var f = (hi[0]===lo[0]) ? 0 : clamp01((phase-lo[0])/(hi[0]-lo[0]));
+      return lo[1] + (hi[1]-lo[1])*f;
+    }
+  }
+  return table[table.length-1][1];
+}
+
+var P = { idleEnd:0.06, descendEnd:0.22, spinEnd:0.64, slipEnd:0.74, retractEnd:0.90 };
+
+var groupYTable = [
+  [0, GROUP_Y_IDLE], [P.idleEnd, GROUP_Y_IDLE], [P.descendEnd, GROUP_Y_ENGAGE],
+  [P.spinEnd, GROUP_Y_SEATED], [P.slipEnd, GROUP_Y_SEATED], [P.retractEnd, GROUP_Y_IDLE], [1, GROUP_Y_IDLE]
+];
+var rodYTable = [
+  [0, ROD_HOME], [P.idleEnd, ROD_HOME], [P.descendEnd, ROD_AT_ENGAGE],
+  [P.spinEnd, ROD_AT_SPIN_END], [P.slipEnd, ROD_AT_SLIP_END], [P.retractEnd, ROD_HOME], [1, ROD_HOME]
+];
+var nutYTable = [
+  [0, nutTopY], [P.idleEnd, nutTopY], [P.descendEnd, nutTopY],
+  [P.spinEnd, nutSeatedY], [1, nutSeatedY]
+];
+
+function cycleState(phase){
+  if(phase < P.idleEnd) return 'พร้อมทำงาน — รอสัญญาณเริ่ม';
+  if(phase < P.descendEnd) return 'กระบอกลมดันหัวขันลงมาหาโบ้ว';
+  if(phase < P.spinEnd) return 'มอเตอร์หมุน คลัตช์ล็อกแน่น ขันโบ้วลงตามเกลียว';
+  if(phase < P.slipEnd) return 'โบ้วแน่นสุดแล้ว — คลัตช์เริ่มลื่น มอเตอร์ยังหมุนแต่หัวขันไม่หมุนตาม';
+  if(phase < P.retractEnd) return 'มอเตอร์หยุด กระบอกลมถอยหัวขันกลับ';
+  return 'พร้อมสำหรับชิ้นงานถัดไป';
+}
+
+var cycleLen = 10;
+function animate(){
+  requestAnimationFrame(animate);
+  if(playing){ t += 0.016 * speed; }
+  var phase = (t % cycleLen) / cycleLen;
+  stateEl.textContent = playing ? cycleState(phase) : 'พร้อมทำงาน';
+
+  var groupY = keyframeLerp(phase, groupYTable);
+  var rodTipY = keyframeLerp(phase, rodYTable);
+  var nutY = keyframeLerp(phase, nutYTable);
+
+  toolGroup.position.y = groupY;
+  nutGroup.position.y = nutY;
+
+  // ก้านกระบอกลม: ยืด/หดจากจุดยึดด้านบนคงที่
+  var rodExt = Math.max(0.02, (barrelBottomY - rodTipY) / rodMaxLen);
+  rodGroup.scale.y = rodExt;
+
+  // สปริงลอยตัว: วางเป็นวงแหวนไล่ระยะระหว่างปลายก้าน (บน) กับหัวมอเตอร์ (ล่าง)
+  var motorTopY = groupY + 2.23;
+  var springLen = Math.max(0.06, rodTipY - motorTopY);
+  springCapTop.position.y = rodTipY;
+  springCapBottom.position.y = motorTopY;
+  for(var k=0;k<springRingCount;k++){
+    springRings[k].position.y = motorTopY + (springLen) * (k/(springRingCount-1));
+  }
+
+  // มอเตอร์หมุนต่อเนื่องตลอดช่วง engage -> slip
+  var motorRunning = (phase >= P.descendEnd && phase < P.slipEnd);
+  var fullyLocked = (phase >= P.descendEnd && phase < P.spinEnd); // คลัตช์ล็อกแน่น ไม่ลื่น
+  var slipping = (phase >= P.spinEnd && phase < P.slipEnd);       // คลัตช์กำลังลื่น
+
+  if(motorRunning && playing){
+    motorAngle += 0.32 * speed;
+    if(fullyLocked){
+      toolAngle += 0.32 * speed;       // ล็อกแน่น หมุนตามมอเตอร์ 1:1
+    } else if(slipping){
+      toolAngle += 0.32 * speed * 0.06; // คลัตช์ลื่น หัวขันแทบไม่หมุนตาม
+    }
+  }
+
+  shaftGroup.rotation.y = motorAngle;
+  couplerGroup.rotation.y = motorAngle;
+  upperClutchGroup.rotation.y = motorAngle;
+  lowerClutchGroup.rotation.y = toolAngle;
+  socket.rotation.y = toolAngle;
+  nutGroup.rotation.y = toolAngle;
+
+  renderer.render(scene, camera);
+}
+animate();
+
+window.addEventListener('resize', function(){
+  camera.aspect = window.innerWidth/window.innerHeight;
+  camera.updateProjectionMatrix();
+  renderer.setSize(window.innerWidth, window.innerHeight);
+});
+</script>
+</body>
+</html>
